@@ -19,7 +19,7 @@ void print_rev(char *s)
 
 	for (j = len - 1; j >= 0; j--)
 	{
-		_putchar(s[j])
+		_putchar(s[j]);
 	}
-	_putchar('\n')
+	_putchar('\n');
 }
