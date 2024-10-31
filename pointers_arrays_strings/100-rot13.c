@@ -3,33 +3,28 @@
 
 /**
  * *rot13 - rotate by 13 places
- * @str: string to be encoded
- * @base: base of uppercases or smallercases
+ * @s: string to be encoded
+ *
  * Return: the resulting string
  */
-char *rot13(char *str)
+char *rot13(char *s)
 {
-    char *ptr = str;
-    int i = 0;
+	int i, j;
 
-    while (str[i])
-    {
-        if ((str[i] >= 'A' && str[i] <= 'Z') || (str[i] >= 'a' && str[i] <= 'z'))
-        {
-            char base = (str[i] >= 'a') ? 'a' : 'A';
-            str[i] = ((str[i] - base + 13) % 26) + base;
-        }
-        i++;
-    }
-    return ptr;
-}
+	char a[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+	char b[] = "NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm";
 
-int main(void)
-{
-    char str[] = "ROT13 (\"rotate by 13 places\", sometimes hyphenated ROT-13)\
-    is a simple letter substitution cipher.";
+	for (i = 0; s[i] != '\0'; i++)
+	{
+		for (j = 0; a[j] != '\0'; j++)
+		{
+			if (s[i] == a[j])
+			{
+				s[i] = b[j];
+				break;
+			}
+		}
+	}
 
-    printf("%s\n", rot13(str));
-
-    return (0);
+	return (s);
 }
