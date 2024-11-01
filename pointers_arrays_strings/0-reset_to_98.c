@@ -12,7 +12,9 @@ void reset_to_98(int *n)
 {
 	*n = 98; 
 	
-//*n : Accede a la valeur stockée a l'adresse pointée par p\
+//*n : Accede a la valeur stockée a l'adresse pointée par n
 //= 98 : assigne la valeur 98 a cette adresse memoire
 
 }
+
+//En résumé, c'est une fonction simple mais efficace pour démontrer l'utilisation basique des pointeurs en C, notamment comment modifier la valeur d'une variable à travers un pointeur.
