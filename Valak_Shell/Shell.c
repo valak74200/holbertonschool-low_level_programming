@@ -1,142 +1,212 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
-#include <sys/types.h>
+#include <unistd.h>
 #include <sys/wait.h>
-#include <signal.h>
+#include <fcntl.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 
-#define MAX_CMD_LENGTH 1024
-#define MAX_ARGS 100
-#define HISTORY_SIZE 10
+#define MAX_INPUT_SIZE 1024
+#define MAX_TOKEN_SIZE 64
+#define MAX_NUM_TOKENS 64
+#define MAX_HISTORY 1000
 
-// Prototypes des fonctions
-void afficher_aide();
-void afficher_bienvenue();
-void ajouter_historique(char *historique[], char *commande, int *index);
-void afficher_historique(char *historique[], int index);
-void sigchld_handler(int signo);
+// Couleurs ANSI
+#define COLOR_RED     "\x1b[31m"
+#define COLOR_GREEN   "\x1b[32m"
+#define COLOR_YELLOW  "\x1b[33m"
+#define COLOR_BLUE    "\x1b[34m"
+#define COLOR_RESET   "\x1b[0m"
 
-void afficher_aide() {
-    printf("Commandes disponibles :\n");
-    printf("  - exit : Quitter le shell\n");
-    printf("  - help : Afficher cette aide\n");
-    printf("  - Flèche haut : Récupérer la dernière commande\n");
-    printf("  - Flèche bas : Passer à la commande suivante\n");
-    printf("  - Ctrl + C : Interrompre la commande en cours\n");
-    printf("  - Ctrl + D : Quitter le shell (envoie EOF)\n");
+typedef struct {
+    char *name;
+    char *value;
+} EnvVar;
+
+EnvVar env_vars[100];
+int env_var_count = 0;
+
+char **tokenize(char *line) {
+    char **tokens = (char **)malloc(MAX_NUM_TOKENS * sizeof(char *));
+    char *token = strtok(line, " \t\n");
+    int i = 0;
+
+    while (token != NULL && i < MAX_NUM_TOKENS) {
+        tokens[i] = strdup(token);
+        i++;
+        token = strtok(NULL, " \t\n");
+    }
+    tokens[i] = NULL;
+    return tokens;
 }
 
-void afficher_bienvenue() {
-	printf("\n");
-	printf(" ||__/\\\________/\\\_____/\\\\\\\\\_____/\\\_________________/\\\\\\\\\_____/\\\________/\\\_________|| \n");
-	printf(" || _\/\\\_______\/\\\___/\\\\\\\\\\\\\__\/\\\_______________/\\\\\\\\\\\\\__\/\\\_____/\\\//_________|| \n");
-	printf(" ||  _\//\\\______/\\\___/\\\/////////\\\_\/\\\______________/\\\/////////\\\_\/\\\__/\\\//___________|| \n");
-	printf(" ||   __\//\\\____/\\\___\/\\\_______\/\\\_\/\\\_____________\/\\\_______\/\\\_\/\\\\\\//\\\__________|| \n");
-	printf(" ||    ___\//\\\__/\\\____\/\\\\\\\\\\\\\\\_\/\\\_____________\/\\\\\\\\\\\\\\\_\/\\\//_\//\\\________|| \n");
-	printf(" ||     ____\//\\\/\\\_____\/\\\/////////\\\_\/\\\_____________\/\\\/////////\\\_\/\\\____\//\\\______|| \n");
-	printf(" ||      _____\//\\\\\______\/\\\_______\/\\\_\/\\\_____________\/\\\_______\/\\\_\/\\\_____\//\\\____|| \n");
-	printf(" ||       ______\//\\\_______\/\\\_______\/\\\_\/\\\\\\\\\\\\\\\_\/\\\_______\/\\\_\/\\\______\//\\\__|| \n");
-	printf(" ||        _______\///________\///________\///__\///////////////__\///________\///__\///________\///__|| \n");
-	printf("\nBienvenue dans le shell de VALAK !\n\n");
-}
+void execute_command(char **args, int input_fd, int output_fd) {
+    pid_t pid = fork();
 
-void ajouter_historique(char *historique[], char *commande, int *index) {
-    historique[*index] = strdup(commande);
-    (*index) = (*index + 1) % HISTORY_SIZE;
-}
-
-void afficher_historique(char *historique[], int index) {
-    printf("Historique des commandes :\n");
-    for (int i = 0; i < HISTORY_SIZE; i++) {
-        if (historique[i] != NULL) {
-            printf("%d: %s\n", i + 1, historique[i]);
+    if (pid == 0) { // Child process
+        if (input_fd != STDIN_FILENO) {
+            dup2(input_fd, STDIN_FILENO);
+            close(input_fd);
         }
+        if (output_fd != STDOUT_FILENO) {
+            dup2(output_fd, STDOUT_FILENO);
+            close(output_fd);
+        }
+
+        for (int i = 0; args[i] != NULL; i++) {
+            if (args[i][0] == '$') {
+                for (int j = 0; j < env_var_count; j++) {
+                    if (strcmp(args[i] + 1, env_vars[j].name) == 0) {
+                        args[i] = env_vars[j].value;
+                        break;
+                    }
+                }
+            }
+        }
+
+        execvp(args[0], args);
+        fprintf(stderr, COLOR_RED "Erreur: Commande non trouvée: %s\n" COLOR_RESET, args[0]);
+        exit(1);
+    } else if (pid < 0) {
+        perror("fork");
+    } else {
+        wait(NULL);
     }
 }
 
-void sigchld_handler(int signo) {
-    // Gérer les processus enfants terminés
-    while (waitpid(-1, NULL, WNOHANG) > 0);
+void handle_pipe(char **args1, char **args2) {
+    int pipefd[2];
+    pipe(pipefd);
+
+    execute_command(args1, STDIN_FILENO, pipefd[1]);
+    close(pipefd[1]);
+    execute_command(args2, pipefd[0], STDOUT_FILENO);
+    close(pipefd[0]);
+}
+
+void set_env_var(char *name, char *value) {
+    for (int i = 0; i < env_var_count; i++) {
+        if (strcmp(env_vars[i].name, name) == 0) {
+            free(env_vars[i].value);
+            env_vars[i].value = strdup(value);
+            return;
+        }
+    }
+    env_vars[env_var_count].name = strdup(name);
+    env_vars[env_var_count].value = strdup(value);
+    env_var_count++;
+}
+
+char* get_current_dir() {
+    static char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        return cwd;
+    } else {
+        perror("getcwd() error");
+        return "unknown";
+    }
+}
+
+char* prompt() {
+    static char prompt_str[1024];
+    snprintf(prompt_str, sizeof(prompt_str), COLOR_GREEN "%s" COLOR_BLUE " %s " COLOR_YELLOW "$ " COLOR_RESET,
+             getenv("USER"), get_current_dir());
+    return prompt_str;
+}
+
+char** command_completion(const char* text, int start, int end) {
+    rl_attempted_completion_over = 1;
+    return rl_completion_matches(text, rl_filename_completion_function);
 }
 
 int main() {
-    char command[MAX_CMD_LENGTH];
-    char *args[MAX_ARGS];
-    pid_t pid;
-    int status;
-    char *historique[HISTORY_SIZE] = {NULL}; // Tableau pour l'historique des commandes
-    int historique_index = 0;
+    char *input;
+    char **tokens;
+    int i;
 
-    // Gestion du signal SIGCHLD
-    struct sigaction sa;
-    sa.sa_handler = sigchld_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+    // Configuration de readline
+    rl_attempted_completion_function = command_completion;
     
-    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-        perror("Erreur lors de la gestion du signal SIGCHLD");
-        exit(EXIT_FAILURE);
-    }
-
-    afficher_bienvenue(); // Affiche le message de bienvenue
+    using_history();
+    read_history(".shell_history");
 
     while (1) {
-        printf("\n>>> "); // Affiche l'invite de commande
-        if (!fgets(command, sizeof(command), stdin)) {
-            break; // Sortie en cas d'erreur ou EOF
-        }
+        input = readline(prompt());
+        
+        if (!input) break;  // EOF (Ctrl+D)
 
-        // Supprime le saut de ligne à la fin de la commande
-        command[strcspn(command, "\n")] = 0;
+        // Ajout à l'historique si la commande n'est pas vide
+        if (*input) add_history(input);
 
-        // Vérifie si la commande est "exit"
-        if (strcmp(command, "exit") == 0) {
-            break;
-        }
+        tokens = tokenize(input);
 
-        // Vérifie si la commande est "help"
-        if (strcmp(command, "help") == 0) {
-            afficher_aide();
+        if (tokens[0] == NULL) {
+            free(input);
+            free(tokens);
             continue;
         }
 
-        // Ajoute la commande à l'historique
-        ajouter_historique(historique, command, &historique_index);
-
-        // Analyse la commande et ses arguments
-        int i = 0;
-        args[i] = strtok(command, " ");
-        while (args[i] != NULL && i < MAX_ARGS - 1) {
-            i++;
-            args[i] = strtok(NULL, " ");
+        if (strcmp(tokens[0], "exit") == 0) {
+            printf(COLOR_YELLOW "Au revoir !\n" COLOR_RESET);
+            break;
         }
-        args[i] = NULL; // Terminer la liste des arguments
 
-        // Crée un nouveau processus
-        pid = fork();
-        if (pid == -1) {
-            perror("Échec de fork");
-            exit(EXIT_FAILURE);
-        } else if (pid == 0) { // Processus enfant
-            execvp(args[0], args); // Exécute la commande
-            perror("Échec d'exécution"); // Si exec échoue
-            exit(EXIT_FAILURE);
-        } 
+        if (strcmp(tokens[0], "export") == 0) {
+            char *eq = strchr(tokens[1], '=');
+            if (eq) {
+                *eq = '\0';
+                set_env_var(tokens[1], eq + 1);
+                printf(COLOR_GREEN "Variable d'environnement définie : %s=%s\n" COLOR_RESET, tokens[1], eq + 1);
+            }
+            free(input);
+            for (i = 0; tokens[i] != NULL; i++) free(tokens[i]);
+            free(tokens);
+            continue;
+        }
 
-        // Processus parent attend que l'enfant termine
-        do {
-            waitpid(pid, &status, WUNTRACED); // Attend que l'enfant termine
-        } while (!WIFEXITED(status) && !WIFSIGNALED(status));
+        int input_fd = STDIN_FILENO;
+        int output_fd = STDOUT_FILENO;
+        char **cmd = tokens;
 
-        // Afficher l'historique après chaque commande exécutée
-        afficher_historique(historique, historique_index);
+        for (i = 0; tokens[i] != NULL; i++) {
+            if (strcmp(tokens[i], ">") == 0) {
+                tokens[i] = NULL;
+                output_fd = open(tokens[i+1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                break;
+            } else if (strcmp(tokens[i], "<") == 0) {
+                tokens[i] = NULL;
+                input_fd = open(tokens[i+1], O_RDONLY);
+                break;
+            } else if (strcmp(tokens[i], "|") == 0) {
+                tokens[i] = NULL;
+                handle_pipe(cmd, &tokens[i+1]);
+                goto cleanup;
+            }
+        }
+
+        execute_command(cmd, input_fd, output_fd);
+
+        if (input_fd != STDIN_FILENO)
+            close(input_fd);
+        if (output_fd != STDOUT_FILENO)
+            close(output_fd);
+
+cleanup:
+        free(input);
+        for (i = 0; tokens[i] != NULL; i++) {
+            free(tokens[i]);
+        }
+        free(tokens);
     }
 
-    // Libération de la mémoire allouée pour l'historique
+    // Sauvegarde de l'historique
+    write_history(".shell_history");
 
-    for (int i = 0; i < HISTORY_SIZE; i++) {
-        free(historique[i]);
+    // Libération des variables d'environnement
+    for (i = 0; i < env_var_count; i++) {
+        free(env_vars[i].name);
+        free(env_vars[i].value);
     }
 
     return 0;
