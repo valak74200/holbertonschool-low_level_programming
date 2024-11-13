@@ -3,11 +3,12 @@
 #include <string.h>
 #include <direct.h>
 #include <windows.h>
+#include <io.h>
 
 #define MAX_INPUT_SIZE 1024
 #define MAX_TOKEN_SIZE 64
 #define MAX_NUM_TOKENS 64
-#define MAX_HISTORY 1000
+#define MAX_PATH 260
 
 // Couleurs pour Windows
 #define COLOR_RED     12
@@ -43,8 +44,47 @@ char **tokenize(char *line) {
 }
 
 void execute_command(char **args) {
-    // Simplified for Windows
-    system(args[0]);
+    if (strcmp(args[0], "cd") == 0) {
+        if (args[1] == NULL) {
+            // Change to home directory
+            _chdir(getenv("USERPROFILE"));
+        } else {
+            if (_chdir(args[1]) != 0) {
+                perror("cd");
+            }
+        }
+    } else if (strcmp(args[0], "ls") == 0) {
+        WIN32_FIND_DATA findFileData;
+        HANDLE hFind = FindFirstFile("*", &findFileData);
+        if (hFind == INVALID_HANDLE_VALUE) {
+            printf("Error in FindFirstFile\n");
+            return;
+        }
+        do {
+            printf("%s\n", findFileData.cFileName);
+        } while (FindNextFile(hFind, &findFileData) != 0);
+        FindClose(hFind);
+    } else if (strcmp(args[0], "pwd") == 0) {
+        char cwd[MAX_PATH];
+        if (_getcwd(cwd, sizeof(cwd)) != NULL) {
+            printf("%s\n", cwd);
+        } else {
+            perror("getcwd");
+        }
+    } else if (strcmp(args[0], "echo") == 0) {
+        for (int i = 1; args[i] != NULL; i++) {
+            printf("%s ", args[i]);
+        }
+        printf("\n");
+    } else {
+        // For other commands, use system()
+        char command[MAX_INPUT_SIZE] = "";
+        for (int i = 0; args[i] != NULL; i++) {
+            strcat(command, args[i]);
+            strcat(command, " ");
+        }
+        system(command);
+    }
 }
 
 void set_env_var(char *name, char *value) {
@@ -61,7 +101,7 @@ void set_env_var(char *name, char *value) {
 }
 
 char* get_current_dir() {
-    static char cwd[1024];
+    static char cwd[MAX_PATH];
     if (_getcwd(cwd, sizeof(cwd)) != NULL) {
         return cwd;
     } else {
