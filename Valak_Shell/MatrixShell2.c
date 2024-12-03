@@ -1,12 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <direct.h>
 #include <windows.h>
 #include <io.h>
 #include <conio.h>
 #include <process.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
+#ifdef _WIN32
 #define MAX_INPUT_SIZE 1024
 #define MAX_TOKEN_SIZE 64
 #define MAX_NUM_TOKENS 64
