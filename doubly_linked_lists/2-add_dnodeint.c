@@ -7,7 +7,7 @@
  * @n: The integer for the new node
  *
  * Return: If the function fails - NULL
- *         Otherwise - The address of the new element
+ * Otherwise - The address of the new element
  */
 dlistint_t *add_dnodeint(dlistint_t **head, const int n)
 {
